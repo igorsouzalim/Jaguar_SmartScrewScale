@@ -75,6 +75,7 @@ void setup() {
   pixels.begin(); 
 
   //Inicialization effect
+  for(int i=0 ; i<10; i++)
   startLed();
 
   //setup thingerio connection
@@ -100,8 +101,7 @@ int32_t readPeso,nLeds;
 
 if(initCalibration == 0)
 {
-  scale.power_up();
-
+  
   scaleTaskExecuting = 1;
   
   readPeso = scale.read_average(10);
@@ -113,7 +113,7 @@ if(initCalibration == 0)
   chart1 = estimated;
 
   Serial.print("\t| Media bruta:\t");
-  Serial.println(readPeso, 1);
+  Serial.println(readPeso);
   Serial.print("\t| nLeds:\t");
   Serial.println(nLeds, 1);
   Serial.print("\t| estimated:\t");
@@ -124,11 +124,12 @@ if(initCalibration == 0)
 
   scale.power_down();			        // put the ADC in sleep mode
   vTaskDelay( 100/ portTICK_PERIOD_MS ); 
-  
+  scale.power_up();
+
 }
 
 
-
+/*
 if(nLeds==0)  // standby LED
 {
   StandbyLedEffect();
@@ -142,7 +143,7 @@ else{           // displays the LED with peso value
   }
   pixels.show(); 
 }
-
+*/
 }
 
 
@@ -153,15 +154,15 @@ void vTaskThingerio(void *pvParameters)
   {
     if(scaleTaskExecuting == 0)
     thing.handle();
-    else
-    {Serial.println("scaleTaskExecuting -------------- waiting for the end of the task... ");}
+    //else
+    //{Serial.println("scaleTaskExecuting -------------- waiting for the end of the task... ");}
 
 
     if(statusCount >= 100)
     {
-      if(status_signal <1)
+      
       status_signal++;
-      else
+      if(status_signal >1)
       status_signal = 0;
 
       statusCount = 0;
@@ -250,7 +251,7 @@ void vTaskCalibration(void *pvParameters)
   }
 }
 
-void startLed()
+void calibrationLedEffect_1()
 {
   pixels.clear(); 
 
@@ -275,7 +276,7 @@ void startLed()
   }
 }
 
-void calibrationLedEffect_1()
+void startLed()
 {
   pixels.clear(); 
 
