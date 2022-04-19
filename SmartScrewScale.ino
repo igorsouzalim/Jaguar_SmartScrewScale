@@ -6,6 +6,7 @@
 #include <ThingerESP32.h>
 
 
+#define totalParafusos 30 //editar conforme qtd utilizada
 //Thingerio
 #define USERNAME "LaboratorioAberto"
 #define DEVICE_ID "jaguarEsp32"
@@ -31,7 +32,7 @@
 
 
 bool initCalibration = 0, scaleTaskExecuting = 0;
-float constScale = 0;
+int32_t pesoMin,pesoMax;
 
 //Thingerio outputs
 uint16_t percent = 50,estimated = 0, status_signal= 0, alarm_system = 0, chart1 = 0 ;
@@ -56,16 +57,20 @@ void setup() {
 
   //EEPROM begin
   preferences.begin("Storage", false); 
-  constScale = preferences.getFloat("constScale", 1);
-  if (constScale == 0){
-    Serial.println("No values saved for constScale");
+
+  pesoMin = preferences.getLong("pesoMin", 0);
+  if (pesoMin == 0){
+    Serial.println("No values saved for pesoMin");
+  }
+
+  pesoMax = preferences.getLong("pesoMax", 0);
+  if (pesoMin == 0){
+    Serial.println("No values saved for pesoMax");
   }
 
   //LoadCell begin
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-  scale.set_scale(2280.f);  //Calibra com o peso do prato apenas  
-  scale.tare();		
-
+	
   //LED begin
   pixels.begin(); 
 
@@ -91,36 +96,47 @@ void setup() {
 
 void loop() {
 
-uint16_t weight,nPixels;
+int32_t readPeso,nLeds;
 
 if(initCalibration == 0)
 {
+  scale.power_up();
+
   scaleTaskExecuting = 1;
-  Serial.print("\t| average:\t");
-  weight = scale.get_units(10)*constScale;
-  Serial.println(weight, 1);
+  
+  readPeso = scale.read_average(10);
+
+  
+  nLeds = map(readPeso, pesoMin, pesoMax, 0, 40);
+  percent = map(readPeso, pesoMin, pesoMax, 0, 100);
+  estimated = map(readPeso, pesoMin, pesoMax, 0, totalParafusos);
+  chart1 = estimated;
+
+  Serial.print("\t| Media bruta:\t");
+  Serial.println(readPeso, 1);
+  Serial.print("\t| nLeds:\t");
+  Serial.println(nLeds, 1);
+  Serial.print("\t| estimated:\t");
+  Serial.println(estimated, 1);
+  Serial.print("\t| percent:\t");
+  Serial.println(percent, 1);
   scaleTaskExecuting = 0;
 
   scale.power_down();			        // put the ADC in sleep mode
   vTaskDelay( 100/ portTICK_PERIOD_MS ); 
-  scale.power_up();
+  
 }
 
 
-if(weight <= 0 || weight>=60000)
-  nPixels = 0;
-else
-  nPixels = (float)0.084*weight;
 
-
-if(nPixels==0)  // standby LED
+if(nLeds==0)  // standby LED
 {
   StandbyLedEffect();
 }
-else{           // displays the LED with weight value
+else{           // displays the LED with peso value
   pixels.clear();  // turn off LEDs
 
-  for(int j=0; j<nPixels; j++)  
+  for(int j=0; j<nLeds; j++)  
   {
     pixels.setPixelColor(j, pixels.Color(50, 230, 50)); 
   }
@@ -132,12 +148,26 @@ else{           // displays the LED with weight value
 
 void vTaskThingerio(void *pvParameters)
 {
+  uint16_t statusCount=0;
   for(;;)
   {
     if(scaleTaskExecuting == 0)
     thing.handle();
     else
     {Serial.println("scaleTaskExecuting -------------- waiting for the end of the task... ");}
+
+
+    if(statusCount >= 100)
+    {
+      if(status_signal <1)
+      status_signal++;
+      else
+      status_signal = 0;
+
+      statusCount = 0;
+    }
+    
+    statusCount++;
 
     vTaskDelay( 10/ portTICK_PERIOD_MS ); 
   }
@@ -181,19 +211,23 @@ void vTaskCalibration(void *pvParameters)
       for(int i = 0;i<20;i++) pixels.setPixelColor(i, pixels.Color(150, 0, 0));
       pixels.show();    vTaskDelay( 300/ portTICK_PERIOD_MS ); 
 
-      for(int i = 0;i<7;i++){ calibrationLedEffect_1(); }
+      pesoMin = scale.read_average(50);  // Le o peso do prato
 
-      uint32_t get_unit = scale.read_average(50);  // Le o peso do prato
+      Serial.print("Calibracao -- valor prato vazio (pesoMin): ");
+      Serial.println(pesoMin); 
 
-      Serial.print("Calibracao -- valor prato vazio: ");
-      Serial.println(get_unit); 
+      preferences.putLong("pesoMin", pesoMin);  // Grava valor minimo (valor do prato)
 
-      constScale = 103.9/get_unit; 
+      calibrationLedEffect_1(); // tempo de espera para colocar todos os parafusos na balança
 
-      preferences.putFloat("constScale", constScale); 
+      //Deve se colocar o peso maximo de parausos neste momento
+      pesoMax = scale.read_average(50);  // Le o peso do prato com a maxima quantidade de parafusos desejada
+      Serial.print("Calibracao -- valor prato cheio(pesoMax): ");
+      Serial.println(pesoMax); 
 
-      Serial.print("constScale: ");
-      Serial.println(constScale);
+      preferences.putLong("pesoMax", pesoMax);  // Grava valor minimo (valor do prato)
+
+      
 
       reedSwitchCount = 0;
 
@@ -202,7 +236,7 @@ void vTaskCalibration(void *pvParameters)
       pixels.clear(); 
       pixels.show(); 
 
-      vTaskDelay( 2000/ portTICK_PERIOD_MS ); 
+      vTaskDelay( 1000/ portTICK_PERIOD_MS ); 
 
       initCalibration = 0;
 
@@ -233,11 +267,11 @@ void startLed()
 
   for(int i=9; i>=0; i--) { 
     
-    pixels.setPixelColor(i, pixels.Color(0, 150, 0));
-    pixels.setPixelColor(19-i, pixels.Color(0, 150, 0));
+    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+    pixels.setPixelColor(19-i, pixels.Color(0, 0, 0));
     pixels.show();   
 
-    delay(50); 
+    delay(1200); 
   }
 }
 
