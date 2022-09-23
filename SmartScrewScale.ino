@@ -14,8 +14,8 @@
 #define DEVICE_CREDENTIAL "7DkKmMQdhec%gYdC"
 
 //Wi-Fi
-#define SSID "note"
-#define SSID_PASSWORD "eletronica"
+#define SSID "Vivo-Internet-54A4"
+#define SSID_PASSWORD "CFC92198E76"
 
 //FreeRTOS
 #define CORE_0 0 
