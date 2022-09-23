@@ -1,3 +1,4 @@
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "HX711.h"
@@ -5,7 +6,7 @@
 #include <Preferences.h>
 #include <ThingerESP32.h>
 
-
+// 
 #define totalParafusos 110 //editar conforme qtd utilizada
 #define LED 36 //quantidade de leds na fita
 //Thingerio
@@ -31,12 +32,18 @@
 
 #define REEDSWITCH 19
 
+#define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  3600
+        /* Time ESP32 will go to sleep (in seconds) */
+
+RTC_DATA_ATTR int bootCount = 0;  //Memoria deepsleep no RTC
+
 
 bool initCalibration = 0, scaleTaskExecuting = 0;
-int32_t pesoMin,pesoMax;
+int32_t pesoMin,pesoMax,pesoUpFlag=0;
 
 //Thingerio outputs
-uint16_t percent = 50,estimated = 0, status_signal= 0, alarm_system = 0, chart1 = 0 ;
+uint16_t percent = 50,estimated = 0, status_signal= 0, alarm_system = 0, chart1 = 0, bateria_nivel = 0, blockSystem=0;
 
 //Objetos
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
@@ -83,24 +90,28 @@ void setup() {
 
    pixels.clear();  // turn off LEDs
 
+  delay(1000);
 
   for(int j=0; j<36; j++)  
   {
     pixels.setPixelColor(j, pixels.Color(50, 230, 50)); 
     pixels.show(); 
-    delay(100);
+    delay(10);
   }
   for(int j=36; j>0; j--)  
   {
     pixels.setPixelColor(j, pixels.Color(150, 0, 150)); 
     pixels.show(); 
-    delay(100);
+    delay(10);
   }
+
+  delay(1000);
 
   
   //Inicialization effect
-  for(int i=0 ; i<2; i++)
+  //for(int i=0 ; i<2; i++)
   startLed();
+  delay(2000);
 
   //setup thingerio connection
   thing.add_wifi(SSID, SSID_PASSWORD);
@@ -112,28 +123,61 @@ void setup() {
   thing["status_signal"] >> outputValue(status_signal);
   thing["alarm"] >> outputValue(alarm_system);
   thing["chart1"] >> outputValue(chart1);
+  thing["bateria_nivel"] >> outputValue(bateria_nivel);
 
   //Freertos setup
   xTaskCreatePinnedToCore( vTaskCalibration, "Task calibration", configMINIMAL_STACK_SIZE*2, NULL, 1, NULL, CORE_1 ); 
   xTaskCreatePinnedToCore( vTaskThingerio, "Task Thingerio", configMINIMAL_STACK_SIZE*24, NULL, 2, NULL, CORE_1 ); 
-     
+  xTaskCreatePinnedToCore( vTaskBateria, "bateria", configMINIMAL_STACK_SIZE*10, NULL, 3, NULL, CORE_0 ); 
+
+  ++bootCount;
+  Serial.println("Boot number: " + String(bootCount));
+
+  
+  
 }
 
 void loop() {
 
-int32_t readPeso,nLeds;
+int32_t readPeso = 0,readPesoNow,nLeds;
 
-if(initCalibration == 0)
+if(initCalibration == 0 && blockSystem == 0)
 {
   
   scaleTaskExecuting = 1;
   
   readPeso = scale.read_average(10);
 
+  //Serial.println("PESO NOW: " +String(readPesoNow));
+
+
+/*
+  if((readPesoNow > (readPeso+500)) && pesoUpFlag == 1)
+  {
+    Serial.println("PESO MAIOR REGISTRADO <<<<<<");
+    readPeso = readPesoNow;
+    pesoUpFlag = 0;
+  }
+  else if((readPesoNow > (readPeso+500)) && pesoUpFlag == 0)
+  {
+    Serial.println("FLAG ON <<<<<<<<<<<<<<");
+    pesoUpFlag = 1;
+    scale.power_down();			        // put the ADC in sleep mode
+    delay(3000);
+  }
+  else if(readPesoNow < readPeso){
+    Serial.println("PESO MENOR<<<<<<");
+     pesoUpFlag = 0;
+     readPeso = readPesoNow;
+  }
+  */
+
   if(readPeso < pesoMin)
   readPeso = pesoMin;
   else if(readPeso > pesoMax)
   readPeso = pesoMax;
+
+  
   
   nLeds = map(readPeso, pesoMin, pesoMax, 0, LED);
   percent = map(readPeso, pesoMin, pesoMax, 0, 100);
@@ -148,11 +192,15 @@ if(initCalibration == 0)
   Serial.println(estimated, 1);
   Serial.print("\t| percent:\t");
   Serial.println(percent, 1);
+  Serial.print("\t| Status_signal:\t");
+  Serial.println(status_signal, 1);
   scaleTaskExecuting = 0;
 
   scale.power_down();			        // put the ADC in sleep mode
   vTaskDelay( 20/ portTICK_PERIOD_MS ); 
   scale.power_up();
+
+  
 
 
 
@@ -177,18 +225,108 @@ else{           // displays the LED with peso value
 }
 
 
+void vTaskBateria(void *pvParameters)  //batery nivel
+{
+  uint32_t readPin = 0,Voff=0;
+  
+  for(int i=0;i<5;i++);
+  int initAnalog = analogRead(34);
+
+  for(;;)
+  {
+    for(int i=0;i<20; i++)
+  {
+    readPin = readPin + analogRead(34);
+    vTaskDelay( 15/ portTICK_PERIOD_MS ); 
+  }
+  readPin = readPin/20;
+
+  int tensaoReal = map(readPin, 0, 4095, 0, 3300);
+  tensaoReal = tensaoReal + 101;
+  int vbat = tensaoReal*2;
+  int nivelBat = map(vbat,3200,4200,0,100);
+  
+  //Serial.println("GPIO34: " + String(readPin));
+  //Serial.println("Vreal: " + String(tensaoReal));
+  //Serial.println("Vbat: " + String(vbat)); // 0 a 4200mV 
+
+  Serial.println(" bateria: " + String(nivelBat) + "%"); // 0 a 100%
+
+  if(bateria_nivel > nivelBat)
+    bateria_nivel = nivelBat;
+  else if (nivelBat > (bateria_nivel+10))
+    bateria_nivel = nivelBat;
+
+
+
+  vTaskDelay( 5000/ portTICK_PERIOD_MS ); 
+
+  if(nivelBat < 10)
+  {
+    // Confirmacao nivel de bateria baixa
+    for(int i=0;i<20; i++)
+    {
+      readPin = readPin + analogRead(34);
+      vTaskDelay( 10/ portTICK_PERIOD_MS ); 
+    }
+    readPin = readPin/20;
+
+    int tensaoReal = map(readPin, 0, 4095, 0, 3300);
+    tensaoReal = tensaoReal + 101;
+    int vbat = tensaoReal*2;
+    int nivelBat = map(vbat,3200,4200,0,100);
+
+     Serial.println(" Medicao de conferencia: " + String(nivelBat) + "%"); // 0 a 100%
+
+    if(nivelBat < 10)
+    {
+      blockSystem = 1; //desabilita Loop() para nao consumir 
+
+      pixels.clear(); 
+      pixels.show();
+
+      esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); // TIMER PARA ACORDAR
+      Serial.print("Entrando em DEEPSLEEP desligando ----- ");
+
+      for(int i=0; i<13; i++) //pisca LED batery low
+      {
+        pixels.setPixelColor(18, pixels.Color(255, 0, 0));
+        pixels.setPixelColor(19, pixels.Color(255, 0, 0));
+        pixels.show();
+        vTaskDelay( 250/ portTICK_PERIOD_MS );   
+        pixels.clear();
+        pixels.show();
+        vTaskDelay( 300/ portTICK_PERIOD_MS );  
+      }
+
+      esp_deep_sleep_start();
+
+    }
+    
+  }
+  
+
+  }
+}
+
+
 void vTaskThingerio(void *pvParameters)
 {
   uint16_t statusCount=0;
   for(;;)
   {
-    if(scaleTaskExecuting == 0)
-    thing.handle();
-    //else
-    //{Serial.println("scaleTaskExecuting -------------- waiting for the end of the task... ");}
+    if(blockSystem == 0)
+    {
+      if(scaleTaskExecuting == 0)
+      thing.handle();
+      //else
+      //{Serial.println("scaleTaskExecuting -------------- waiting for the end of the task... ");}
 
-
-    status_signal = 1;
+      if(percent <=30)
+      status_signal = 1;
+      else
+      status_signal = 0;
+    }
 
     vTaskDelay( 10/ portTICK_PERIOD_MS ); 
   }
