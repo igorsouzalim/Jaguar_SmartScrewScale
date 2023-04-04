@@ -1,3 +1,5 @@
+#define THINGER_SERIAL_DEBUG
+#define _DISABLE_TLS_
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,7 +14,7 @@
 //Thingerio
 #define USERNAME "LaboratorioAberto"
 #define DEVICE_ID "jaguarEsp32"
-#define DEVICE_CREDENTIAL "7DkKmMQdhec%gYdC"
+#define DEVICE_CREDENTIAL "123456"
 
 //Wi-Fi
 #define SSID "Vivo-Internet-54A4"
@@ -21,6 +23,8 @@
 //FreeRTOS
 #define CORE_0 0 
 #define CORE_1 1
+
+
 
 //Fita de LED
 #define PIN        4 // On Trinket or Gemma, suggest changing this to 1
@@ -43,7 +47,7 @@ bool initCalibration = 0, scaleTaskExecuting = 0;
 int32_t pesoMin,pesoMax,pesoUpFlag=0;
 
 //Thingerio outputs
-uint16_t percent = 50,estimated = 0, status_signal= 0, alarm_system = 0, chart1 = 0, bateria_nivel = 0, blockSystem=0;
+uint16_t percent = 50,estimated = 0, status_signal= 0, alarm_system = 0, chart1 = 0, bateria_nivel = 100, blockSystem=0;
 
 //Objetos
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
@@ -84,7 +88,7 @@ void setup() {
 
   //LoadCell begin
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
-	
+  
   //LED begin
   pixels.begin(); 
 
@@ -128,7 +132,7 @@ void setup() {
   //Freertos setup
   xTaskCreatePinnedToCore( vTaskCalibration, "Task calibration", configMINIMAL_STACK_SIZE*2, NULL, 1, NULL, CORE_1 ); 
   xTaskCreatePinnedToCore( vTaskThingerio, "Task Thingerio", configMINIMAL_STACK_SIZE*24, NULL, 2, NULL, CORE_1 ); 
-  xTaskCreatePinnedToCore( vTaskBateria, "bateria", configMINIMAL_STACK_SIZE*10, NULL, 3, NULL, CORE_0 ); 
+  //xTaskCreatePinnedToCore( vTaskBateria, "bateria", configMINIMAL_STACK_SIZE*10, NULL, 3, NULL, CORE_0 ); 
 
   ++bootCount;
   Serial.println("Boot number: " + String(bootCount));
@@ -140,6 +144,8 @@ void setup() {
 void loop() {
 
 int32_t readPeso = 0,readPesoNow,nLeds;
+
+
 
 if(initCalibration == 0 && blockSystem == 0)
 {
@@ -162,7 +168,7 @@ if(initCalibration == 0 && blockSystem == 0)
   {
     Serial.println("FLAG ON <<<<<<<<<<<<<<");
     pesoUpFlag = 1;
-    scale.power_down();			        // put the ADC in sleep mode
+    scale.power_down();             // put the ADC in sleep mode
     delay(3000);
   }
   else if(readPesoNow < readPeso){
@@ -196,7 +202,7 @@ if(initCalibration == 0 && blockSystem == 0)
   Serial.println(status_signal, 1);
   scaleTaskExecuting = 0;
 
-  scale.power_down();			        // put the ADC in sleep mode
+  scale.power_down();             // put the ADC in sleep mode
   vTaskDelay( 20/ portTICK_PERIOD_MS ); 
   scale.power_up();
 
@@ -379,7 +385,7 @@ void vTaskCalibration(void *pvParameters)
 
       for(int i = 0;i<LED;i++) pixels.setPixelColor(i, pixels.Color(0, 0, 0)); // apaga Leds
       pixels.show();   vTaskDelay( 300/ portTICK_PERIOD_MS ); 
-			     
+           
       for(int i = 0;i<LED;i++) pixels.setPixelColor(i, pixels.Color(150, 0, 0));
       pixels.show();    vTaskDelay( 300/ portTICK_PERIOD_MS ); 
 
